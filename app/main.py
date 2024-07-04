@@ -10,7 +10,34 @@ def main():
     #
     server_socket = socket.create_server(("localhost",4221), reuse_port=True)
     # server_socket.accept() # wait for client
-    server_socket.accept()[0].sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+    # server_socket.accept()[0].sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+
+
+    while True:
+        connection, address = server_socket.accept()
+        request = connection.recv(1024)
+        print(request.decode())
+        url = request.decode().split(' ') 
+
+        target_request = url[1]
+ 
+        if target_request == '/':
+            print("target_request is / ", target_request)
+            connection.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+        else:
+            print("target request wrong", target_request)
+            connection.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+
+
+    # while True:
+    #     connection, address = server_socket.accept()
+    #     request = connection.recv(1024)
+    #     print(requsest.decode())
+    #     if request.decode() == "/abcdefg":
+    #         connection.sendall(b"HTTP/1.1 404 Not Found\r\n\r\n")
+    #     else:
+    #         connection.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
+    
     
 
 if __name__ == "__main__":
