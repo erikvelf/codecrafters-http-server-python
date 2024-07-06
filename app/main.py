@@ -28,6 +28,11 @@ def main():
         handle_client(connection, target_request, request_elems)
         
 
+
+
+
+
+
 def parse_request(request):
     lines = request.split('\r\n')
     method, request_target, protocol = lines[0].split(' ')
