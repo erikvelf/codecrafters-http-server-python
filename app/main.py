@@ -1,6 +1,7 @@
 # Uncomment this to pass the first stage
 import socket
-
+import threading
+import sys
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -23,9 +24,10 @@ def main():
         request_elems = parse_request(request) #request elements
         target_request = request_elems["request-target"]
 
+        thread = threading.Thread(args=(connection, request_elems), target=handle_client)
         
         # [R] stands for response line
-        handle_client(connection, target_request, request_elems)
+        handle_client(connection, request_elems)
         
 
 
@@ -76,26 +78,53 @@ def create_response(protocol, status_code, status_message, content_type, content
     #     else:
     #         connection.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
     
-def handle_client(connection, target_request, request_elems):
+def handle_client(connection, request_elems):
+    target_request = request_elems["request-target"]
+    protocol = request_elems["protocol"]
     response = ''
+
+    status_message = "OK"
+    status_code_ok = "200"
+
+
+    # argv[2] takes the second argument of the command line: ./your_server.sh --directory /tmp/
+    # ./your_server.sh is argument N0, so /tmp/ is N2 since indexing starts with 0
+    # if there are more than 2 arguments, there is a path in the command line
+    FILE_PATH = sys.argv[2] if len(sys.argv) > 2 else "./files/" 
+
+
+
     if target_request == '/':
         print("target_request is / ", target_request)
-        response = create_response("HTTP/1.1", "200", "OK", "text/plain", '')
+        response = create_response(protocol, status_code_ok, "OK", "text/plain", '')
 
     elif target_request.find('echo') != -1:
         echo = request_elems["request-target"][len("/echo/"):]
         # print("[R] echo:", echo)
-        response = create_response("HTTP/1.1", "200", "OK", "text/plain", echo)
+        response = create_response(protocol, status_code_ok, "OK", "text/plain", echo)
 
     elif target_request == '/user-agent':
-        response = create_response("HTTP/1.1", "200", "OK", "text/plain", request_elems["user-agent"])
+        response = create_response(protocol,"200", "OK", "text/plain", request_elems["user-agent"])
+    
+    elif target_request[:len("/files/")] == "/files/":
+        file_name = target_request[len("/files/"):]  
+        print("file request: ", file_name, FILE_PATH)
+
+        # try block makes that if there is an error it will execyte the except statement 
+        try:
+            with open(f"{FILE_PATH}/{file_name}", 'r') as file:
+                file_content = file.read()
+                response = create_response(protocol, status_code_ok, status_message, "application/octet-stream", file_content)
+        except:
+            response = "HTTP/1.1 404 Not Found\r\n\r\n"
 
     else:
-        print("target request wrong", target_request)
+        # print("target request wrong", target_request)
         response = "HTTP/1.1 404 Not Found\r\n\r\n"
     
     connection.sendall(response.encode())
     print("\n response:",response)
+
     connection.close()
 
 if __name__ == "__main__":
