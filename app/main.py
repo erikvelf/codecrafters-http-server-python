@@ -7,18 +7,20 @@ def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     print("Logs from your program will appear here!")
 
+
+    IP = "localhost"
+    PORT = 4221
     # Uncomment this to pass the first stage
     #
-    server_socket = socket.create_server(("localhost",4221), reuse_port=True)
+    server_socket = socket.create_server((IP,PORT), reuse_port=True)
     # server_socket.accept() # wait for client
     # server_socket.accept()[0].sendall(b"HTTP/1.1 200 OK\r\n\r\n")
 
 
     while True:
         connection, address = server_socket.accept()
-        raw_request = connection.recv(1024)
-
-        request = raw_request.decode()
+        request = connection.recv(1024)
+        request = request.decode()
         print(request)
 
         request_elems = parse_request(request) #request elements
@@ -39,7 +41,10 @@ def parse_request(request):
     lines = request.split('\r\n')
     method, request_target, protocol = lines[0].split(' ')
     # server_socket, usr_agent, accepted_media = lines[1].split('\r\n')
+    # print("PRINTING LINES OF HTTP REQUEST:\n", lines, "\n\n")
+    body = lines[-1]
 
+    # print("BODY: ", body, '\n\n')
     header_cnt = 0
     for i in lines:
         if i.find(": ") != -1:
@@ -49,6 +54,7 @@ def parse_request(request):
         "protocol": protocol,
         "method": method,
         "request-target": request_target,
+        "body": body
         # lines[1].split(": ")[0].lower(): lines[1].split(": ")[1],
         # lines[2].split(": ")[0].lower(): lines[2].split(": ")[1],
         # lines[3].split(": ")[0].lower(): lines[3].split(": ")[1]
@@ -57,14 +63,18 @@ def parse_request(request):
     for i in range(header_cnt):
         request_elems.update({lines[i+1].split(": ")[0].lower() : lines[i+1].split(": ")[1]})
 
-    print(request_elems)
+    print("[D] REQUEST ELEMS from parse_request():",request_elems)
     # print("[000] lines: ",  lines)
     # print("DICTIONARY: ", request_elems)
 
     return request_elems
 
-def create_response(protocol, status_code, status_message, content_type, content):
-    response = f"{protocol} {status_code} {status_message}\r\nContent-Type: {content_type}\r\nContent-Length: {len(content)}\r\n\r\n{content}"
+def create_response(protocol, status_code, status_message, content_type, content):  
+    if content_type == "":
+        response = f"{protocol} {status_code} {status_message}\r\n\r\n"
+    else:
+        response = f"{protocol} {status_code} {status_message}\r\nContent-Type: {content_type}\r\nContent-Length: {len(content)}\r\n\r\n{content}"
+
     return response
 
 
@@ -109,15 +119,21 @@ def handle_client(connection, request_elems):
     elif target_request[:len("/files/")] == "/files/":
         file_name = target_request[len("/files/"):]  
         print("file request: ", file_name, FILE_PATH)
+        if request_elems["method"] == "GET":
 
-        # try block makes that if there is an error it will execyte the except statement 
-        try:
-            with open(f"{FILE_PATH}/{file_name}", 'r') as file:
-                file_content = file.read()
-                response = create_response(protocol, status_code_ok, status_message, "application/octet-stream", file_content)
-        except:
-            response = "HTTP/1.1 404 Not Found\r\n\r\n"
-
+            # try block makes that if there is an error it will execyte the except statement 
+            try:
+                with open(f"{FILE_PATH}/{file_name}", 'r') as file:
+                    file_content = file.read()
+                    response = create_response(protocol, status_code_ok, status_message, "application/octet-stream", file_content)
+            except:
+                response = "HTTP/1.1 404 Not Found\r\n\r\n"
+        
+        elif request_elems["method"] == "POST":
+            create_file(f"{FILE_PATH}/{file_name}", request_elems)
+            response = create_response(request_elems["protocol"], "201", "Created", "", "")
+            
+            
     else:
         # print("target request wrong", target_request)
         response = "HTTP/1.1 404 Not Found\r\n\r\n"
@@ -126,6 +142,14 @@ def handle_client(connection, request_elems):
     print("\n response:",response)
 
     connection.close()
+
+
+def create_file(FILE_PATH, request_elems):
+    new_file = open(FILE_PATH, "w")
+    new_file.write(request_elems["body"])
+    new_file.close
+
+
 
 if __name__ == "__main__":
     main()
