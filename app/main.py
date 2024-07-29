@@ -2,6 +2,7 @@ import socket
 import sys
 import argparse
 import threading
+import gzip
 
 HTTP = "HTTP/1.1"
 PATH_SLASH = '/'
@@ -45,28 +46,11 @@ def main():
         connection, address = server_socket.accept()
         # print(f"[*] Connection accepted from {address[0]}:{address[1]}")
 
-        # req = Request().parse_from_string(connection.recv(2048).decode())
-
-        # req = Request().parse_from_string(connection.recv(2048).decode())
-
-        # target_request = req.path
-        # print(f"[R] [{address[0]}] requested {req.method} {req.path}")
-        
-        # thread = threading.Thread(args=(req, connection), target=handle_connections)
-        # thread.start()
-        
-        # thread = threading.Thread(target=handle_connections, args=(req, connection))
         thread = threading.Thread(target=handle_connections, args=(connection,))
         thread.start()
 
-        # threads.append(thread)
-        
-        # thread.join()
-        # threading.Thread(args=(req, connection), target=handle_connections).start()
-
         handled_connections += 1 
         print(f"\n\n[H] Connections handled: {handled_connections}\n\n")
-
 
 
 class Request:
@@ -89,9 +73,9 @@ class Request:
         if encodings == None:
             return list()
         else:
-            return encodings.split(', ')
+            return map(lambda s: s.strip(), encodings.split(','))
 
-    def parse_from_string(self, request: str):
+    def try_from_string(self, request: str):
         lines = request.split('\r\n') 
         method, path, protocol = lines[0].split(' ')
         body = lines[-1]
@@ -132,8 +116,8 @@ class Response:
         self.body = ""
         self.headers = {} # dict
         self.supported_encodings = supported_encodings
+        self.body_encoding = None
         
-    
     
     def with_header(self, header_name, header_value):
         self.headers.update({header_name: header_value})
@@ -159,7 +143,25 @@ class Response:
         for encoding in list_of_encodings:
             if encoding in self.supported_encodings:
                 self.with_header("Content-Encoding", encoding)
+                self.body_encoding = encoding
                 break
+
+        return self
+    
+    def encode_body(self):
+        if self.body_encoding == "gzip":
+            # data = self.body.encode()
+            # gzipped_data = gzip.compress(data)
+
+
+            gzipped_data = gzip.compress(self.body.encode())
+            print("[D] Not compressed body:", self.body)
+            print(f"[D] Encoded body: {self.body.encode()}")
+            print("[D] Compressed body:", gzipped_data)
+            print("[D] Compressed body length:", len(gzipped_data))
+
+            self.body = gzipped_data
+        
 
         return self
     
@@ -168,17 +170,31 @@ class Response:
         return self
     
     def build(self):
+        if not(self.body_encoding == None):
+            self = self.encode_body()
+            print("encoding is used")
+        
         self.with_header("Content-Length", len(self.body))
 
         headers = map(lambda kv: f'{kv[0]}: {kv[1]}\r\n', self.headers.items())
         headers = ''.join(headers)
 
-        response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n{self.body}"
-        return response
+        print(f"FROM BUILD IN RESPOSE(): body: {self.body}")
 
-def handle_connections(connection: socket):
+        # response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n{self.body}"
+        if not(self.body_encoding == None):
+            print(f"ENCODING IS USED IN BUILD()")
+            response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n".encode()
+            response += self.body
+            return response
+        else:
+            print(f"ENCODING IS NOT USED IN BUILD()")
+            response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n{self.body}"
+            return response.encode()
+
+def handle_connections(connection: socket.socket):
     # getting the request and reading it
-    request = Request().parse_from_string(connection.recv(1024).decode())
+    request = Request().try_from_string(connection.recv(1024).decode())
     
     target_request = request.path
     response = ''
@@ -217,7 +233,7 @@ def handle_connections(connection: socket):
                     # response = create_response(status_code_ok, status_message, "application/octet-stream", file_content)
                     response = Response().with_content_type("application/octet-stream").with_body(file_content).build()
             except:
-                response = "HTTP/1.1 404 Not Found\r\n\r\n"
+                response = response = Response().with_status_code(404).build()
         
         elif request.method == "POST":
             print(f"FILE PATH IS: {FILE_PATH}{file_name}")
@@ -228,8 +244,8 @@ def handle_connections(connection: socket):
     else:
         response = Response().with_status_code(404).build()
     
-    # print(f"[D] RESPONSE:\r\n{response}")
-    connection.sendall(response.encode())
+    print(f"[D] RESPONSE:\r\n{response}")
+    connection.sendall(response)
     connection.close()
 
 
