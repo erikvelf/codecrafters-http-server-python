@@ -9,13 +9,14 @@ PATH_SLASH = '/'
 STATUS = {
     200: "OK",
     201: "Created",
-    404: "Not Found"
+    404: "Not Found",
+    401: "Unauthorized"
 }
 
 # def cron_job(time: float, threads):
 #     for thread in threads:
 #         thread.join()
-    
+
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     # print("Logs from your program will appear here!")
@@ -36,22 +37,22 @@ def main():
     # server_socket.accept() # wait for client
     print(f"\n[*] Listening on {IP}:{PORT}...\n\n")
 
- 
-    # threads = []
+    try:
+        while True:
+            connection, address = server_socket.accept()
+            print(f"[*] Connection accepted from {address[0]}:{address[1]}")
 
-    # cron = threading.Thread(args=(1.0, threads), target=cron_job)
-    # cron.start()
+            ip_address = address[0]
 
-    while True:
-        connection, address = server_socket.accept()
-        # print(f"[*] Connection accepted from {address[0]}:{address[1]}")
+            thread = threading.Thread(target=handle_connections, args=(connection,))
+            print(f"[v] Thread started for {ip_address}")
+            thread.start()
 
-        thread = threading.Thread(target=handle_connections, args=(connection,))
-        thread.start()
-
-        handled_connections += 1 
-        print(f"\n\n[H] Connections handled: {handled_connections}\n\n")
-
+            handled_connections += 1
+            print(f"\n[H] Connections handled: {handled_connections}\n\n")
+    except KeyboardInterrupt:
+        print("\n[X] Server is shutting down")
+        print("Handled connections: ", handled_connections)
 
 class Request:
     def __init__(self):
@@ -60,13 +61,13 @@ class Request:
         self.path = None
         self.headers = None
         self.body = ""
-  
+
     def get_header_value(self, header_name: str):
         try:
             return self.headers[header_name]
         except:
             return None
-    
+
     def get_encodings(self) -> list:
         encodings = self.get_header_value("Accept-Encoding")
 
@@ -76,7 +77,7 @@ class Request:
             return map(lambda s: s.strip(), encodings.split(','))
 
     def try_from_string(self, request: str):
-        lines = request.split('\r\n') 
+        lines = request.split('\r\n')
         method, path, protocol = lines[0].split(' ')
         body = lines[-1]
 
@@ -102,9 +103,7 @@ class Request:
         self.method = method
         self.headers = headers
         self.body = body
-
-        print(f"FROM PARSE_FROM_STRING lines are: {lines}")
-
+        # print(f"FROM PARSE_FROM_STRING lines are: {lines}")
 
         return self
 
@@ -117,8 +116,8 @@ class Response:
         self.headers = {} # dict
         self.supported_encodings = supported_encodings
         self.body_encoding = None
-        
-    
+
+
     def with_header(self, header_name, header_value):
         self.headers.update({header_name: header_value})
         return self
@@ -127,18 +126,18 @@ class Response:
     def with_protocol(self, protocol):
         self.protocol = protocol
         return self
-    
+
     def with_content_type(self, content_type):
         self.with_header("Content-Type", content_type)
         return self
-    
+
     def with_body(self, body):
         if body == None:
             self.body = ""
         else:
             self.body = body
         return self
-    
+
     def with_encoding(self, list_of_encodings):
         for encoding in list_of_encodings:
             if encoding in self.supported_encodings:
@@ -147,64 +146,50 @@ class Response:
                 break
 
         return self
-    
+
     def encode_body(self):
         if self.body_encoding == "gzip":
-            # data = self.body.encode()
-            # gzipped_data = gzip.compress(data)
-
-
             gzipped_data = gzip.compress(self.body.encode())
-            print("[D] Not compressed body:", self.body)
-            print(f"[D] Encoded body: {self.body.encode()}")
-            print("[D] Compressed body:", gzipped_data)
-            print("[D] Compressed body length:", len(gzipped_data))
-
             self.body = gzipped_data
-        
+
 
         return self
-    
+
     def with_status_code(self, code):
         self.status_code = code
         return self
-    
+
     def build(self):
         if not(self.body_encoding == None):
             self = self.encode_body()
-            print("encoding is used")
-        
+
         self.with_header("Content-Length", len(self.body))
 
         headers = map(lambda kv: f'{kv[0]}: {kv[1]}\r\n', self.headers.items())
         headers = ''.join(headers)
 
-        print(f"FROM BUILD IN RESPOSE(): body: {self.body}")
-
-        # response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n{self.body}"
         if not(self.body_encoding == None):
-            print(f"ENCODING IS USED IN BUILD()")
             response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n".encode()
             response += self.body
             return response
         else:
-            print(f"ENCODING IS NOT USED IN BUILD()")
             response = f"{self.protocol} {self.status_code} {STATUS[self.status_code]}\r\n{headers}\r\n{self.body}"
             return response.encode()
 
 def handle_connections(connection: socket.socket):
     # getting the request and reading it
     request = Request().try_from_string(connection.recv(1024).decode())
-    
+
     target_request = request.path
     response = ''
     protocol = request.protocol
 
     encodings = request.get_encodings()
 
-    # print(f"Request method is: [{request.method}]")
+    print(f"[R] Requested {target_request}")
+
     STATUS_NOT_FOUND = "HTTP/1.1 404 Not Found\r\n\r\n"
-    
+
     # argv[2] takes the second argument of the command line: ./your_server.sh --directory /tmp/
     # ./your_server.sh is argument N0, so /tmp/ is N2 since indexing starts with 0
     # if there are more than 2 arguments, there is a path in the command line
@@ -219,32 +204,31 @@ def handle_connections(connection: socket.socket):
 
     elif request.path == '/user-agent':
         response = Response().with_content_type("text/plain").with_body(request.headers["User-Agent"]).with_encoding(encodings).build()
-    
+
     elif request.path.startswith("/files/"):
         file_name = target_request[len("/files/"):]
         # if i search for a file in a folder that is in ./files, i might get an error on Windows
-        
         if request.method == "GET":
             # print(f"[R] File \"{file_name}\" requested.")
-            # try block makes that if there is an error it will execute the except statement 
+            # try block makes that if there is an error it will execute the except statement
             try:
                 with open(f"{FILE_PATH}{file_name}", 'r') as file:
                     file_content = file.read()
                     # response = create_response(status_code_ok, status_message, "application/octet-stream", file_content)
-                    response = Response().with_content_type("application/octet-stream").with_body(file_content).build()
+                    if (file_name.endswith(".html")):
+                        response = Response().with_content_type("text/html").with_body(file_content).build()
+                    else:
+                        response = Response().with_content_type("application/octet-stream").with_body(file_content).build()
             except:
                 response = response = Response().with_status_code(404).build()
-        
+
         elif request.method == "POST":
             print(f"FILE PATH IS: {FILE_PATH}{file_name}")
             create_file(f"{FILE_PATH}{file_name}", request.body)
             response = Response().with_status_code(201).build()
-            
-            
     else:
         response = Response().with_status_code(404).build()
-    
-    print(f"[D] RESPONSE:\r\n{response}")
+
     connection.sendall(response)
     connection.close()
 
@@ -253,8 +237,6 @@ def create_file(FILE_PATH: str, file_content):
     new_file = open(FILE_PATH, "w")
     new_file.write(file_content)
     new_file.close()
-    
-
 
 
 if __name__ == "__main__":
